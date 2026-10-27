@@ -1,0 +1,114 @@
+name: Build Self-Contained Executables
+
+on:
+  push:
+    tags:
+      - 'v*'          # e.g. v1.0.0, v1.2.3, v2.0.0-beta
+  workflow_dispatch:  # optional manual trigger
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+        python-version: ['3.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+        shell: bash
+
+      # Optional: install system packages on Linux if your app has native deps
+      - name: Install Linux system dependencies (if needed)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+        # Add more packages here as required (e.g. libgtk-3-dev for GUI apps)
+
+      - name: Build executable with PyInstaller
+        run: |
+          # --onefile creates a single self-contained executable
+          # --windowed suppresses the console window (Windows)
+          # --clean removes temporary files
+          #
+          # Icon: if icon.png exists, use it.
+          # On Windows, PyInstaller (with Pillow) converts PNG → ICO automatically.
+          # On Linux the --icon flag has little effect on the binary itself
+          # (Linux executables don't embed icons the way Windows EXEs do).
+          # For the window/taskbar icon on Linux you still need to set it in your app code.
+          ICON_ARGS=""
+          ADD_DATA_ARGS=""
+          if [ -f icon.png ]; then
+            ICON_ARGS="--icon=icon.png"
+            # Bundle icon.png so the running app can load it as the window icon
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              ADD_DATA_ARGS="--add-data=icon.png;."
+            else
+              ADD_DATA_ARGS="--add-data=icon.png:."
+            fi
+          fi
+          pyinstaller --onefile --windowed --clean --name PYDE $ICON_ARGS $ADD_DATA_ARGS PYDE.py
+        shell: bash
+
+      - name: List build output
+        run: ls -lah dist/
+        shell: bash
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PYDE-${{ runner.os }}
+          path: |
+            dist/PYDE
+            dist/PYDE.exe
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    name: Upload to GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    # Runs after builds when a version tag is pushed
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: ls -lah dist/
+
+      - name: Create/update release and upload binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/PYDE
+            dist/PYDE.exe
+          generate_release_notes: true
+          # Uses the tag that triggered the workflow
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
