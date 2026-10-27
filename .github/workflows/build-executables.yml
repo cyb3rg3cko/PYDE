@@ -49,6 +49,10 @@ jobs:
           # --windowed suppresses the console window (Windows)
           # --clean removes temporary files
           #
+          # Tkinter support: required for the IDE itself
+          # --hidden-import=tkinter
+          # --collect-all tkinter
+          #
           # Icon: if icon.png exists, use it.
           # On Windows, PyInstaller (with Pillow) converts PNG → ICO automatically.
           # On Linux the --icon flag has little effect on the binary itself
@@ -65,7 +69,9 @@ jobs:
               ADD_DATA_ARGS="--add-data=icon.png:."
             fi
           fi
-          pyinstaller --onefile --windowed --clean --name PYDE $ICON_ARGS $ADD_DATA_ARGS PYDE.py
+          pyinstaller --onefile --windowed --clean --name PYDE \
+            --hidden-import=tkinter --collect-all tkinter \
+            $ICON_ARGS $ADD_DATA_ARGS PYDE.py
         shell: bash
 
       - name: List build output
