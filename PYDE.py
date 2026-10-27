@@ -1162,58 +1162,88 @@ class PySimpleIDE(tk.Tk):
             ):
                 return
 
-        exe_name = self.project_dir.name.replace(" ", "_")
-        onefile = messagebox.askyesno(
-            APP_TITLE,
-            "Build a single-file executable?\n\n"
-            "Yes  = one file in dist/  (slower start, easier to share)\n"
-            "No   = a folder in dist/  (faster start, extra files)",
-            default=messagebox.YES,
-        )
+        # --- Build options dialog ---
+        dlg = tk.Toplevel(self)
+        dlg.title("Build Executable")
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
 
-        icon_path = None
+        result = {"ok": False}
+
+        # Checkboxes
+        opts = tk.Frame(dlg, bg=BG)
+        opts.pack(fill=tk.X, padx=16, pady=(16, 8))
+
+        var_onefile = tk.BooleanVar(value=True)
+        var_windowed = tk.BooleanVar(value=False)
+        var_tkinter = tk.BooleanVar(value=False)
+
+        tk.Checkbutton(
+            opts, text="One File", variable=var_onefile,
+            bg=BG, fg=FG, selectcolor=BG_ALT, activebackground=BG, activeforeground=FG,
+            font=("Helvetica", 10)
+        ).pack(anchor="w", pady=2)
+
+        tk.Checkbutton(
+            opts, text="Windowed (GUI)  — hide console window", variable=var_windowed,
+            bg=BG, fg=FG, selectcolor=BG_ALT, activebackground=BG, activeforeground=FG,
+            font=("Helvetica", 10)
+        ).pack(anchor="w", pady=2)
+
+        tk.Checkbutton(
+            opts, text="Include Tkinter support  (adds --hidden-import=tkinter --collect-all tkinter)",
+            variable=var_tkinter,
+            bg=BG, fg=FG, selectcolor=BG_ALT, activebackground=BG, activeforeground=FG,
+            font=("Helvetica", 10)
+        ).pack(anchor="w", pady=2)
+
+        # Entry file
+        tk.Label(dlg, text="Entry File", bg=BG, fg=FG_DIM, font=("Helvetica", 9)).pack(
+            anchor="w", padx=16, pady=(8, 2))
+        entry_frame = tk.Frame(dlg, bg=BG)
+        entry_frame.pack(fill=tk.X, padx=16)
+        var_entry = tk.StringVar(value=str(self.current_file))
+        tk.Entry(entry_frame, textvariable=var_entry, bg=BG_ALT, fg=FG,
+                 insertbackground=FG, relief=tk.FLAT, font=("Consolas", 9),
+                 width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+        def browse_entry():
+            p = filedialog.askopenfilename(
+                title="Select entry script",
+                initialdir=str(self.project_dir),
+                filetypes=[("Python files", "*.py"), ("All files", "*.*")],
+            )
+            if p:
+                var_entry.set(p)
+        tk.Button(entry_frame, text="Browse…", command=browse_entry,
+                  bg=BG_ALT, fg=FG, relief=tk.FLAT, padx=8).pack(side=tk.LEFT, padx=(6, 0))
+
+        # Icon file
+        tk.Label(dlg, text="Icon File (optional)", bg=BG, fg=FG_DIM, font=("Helvetica", 9)).pack(
+            anchor="w", padx=16, pady=(10, 2))
+        icon_frame = tk.Frame(dlg, bg=BG)
+        icon_frame.pack(fill=tk.X, padx=16)
+
+        # Pre-fill icon if one exists in the project
+        suggested_icon = ""
         for candidate in (
             self.project_dir / "icon.ico",
             self.project_dir / "icon.png",
-            self.project_dir / f"{exe_name}.ico",
-            self.project_dir / f"{exe_name}.png",
+            self.project_dir / f"{self.project_dir.name}.ico",
+            self.project_dir / f"{self.project_dir.name}.png",
         ):
             if candidate.exists():
-                icon_path = candidate
+                suggested_icon = str(candidate)
                 break
 
-        if icon_path:
-            use_found = messagebox.askyesnocancel(
-                APP_TITLE,
-                f"Found an icon in the project:\n  {icon_path}\n\n"
-                "Yes = use it\nNo = choose a different file\nCancel = no icon",
-            )
-            if use_found is None:
-                icon_path = None
-            elif use_found is False:
-                icon_path = None
-                picked = filedialog.askopenfilename(
-                    title="Choose an icon",
-                    initialdir=str(self.project_dir),
-                    filetypes=[
-                        ("Icon files", "*.ico *.png *.icns"),
-                        ("ICO", "*.ico"),
-                        ("PNG", "*.png"),
-                        ("All files", "*.*"),
-                    ],
-                )
-                if picked:
-                    icon_path = Path(picked)
-        elif messagebox.askyesno(
-            APP_TITLE,
-            "Add an icon to the executable?\n\n"
-            "Choose an .ico (best) or .png file.\n\n"
-            "Note: on Linux, PyInstaller embeds the icon for the app window, "
-            "but file managers often still show a generic binary icon unless "
-            "you also add a .desktop launcher.",
-        ):
-            picked = filedialog.askopenfilename(
-                title="Choose an icon",
+        var_icon = tk.StringVar(value=suggested_icon)
+        tk.Entry(icon_frame, textvariable=var_icon, bg=BG_ALT, fg=FG,
+                 insertbackground=FG, relief=tk.FLAT, font=("Consolas", 9),
+                 width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+        def browse_icon():
+            p = filedialog.askopenfilename(
+                title="Select icon",
                 initialdir=str(self.project_dir),
                 filetypes=[
                     ("Icon files", "*.ico *.png *.icns"),
@@ -1222,14 +1252,57 @@ class PySimpleIDE(tk.Tk):
                     ("All files", "*.*"),
                 ],
             )
-            if picked:
-                icon_path = Path(picked)
+            if p:
+                var_icon.set(p)
+        tk.Button(icon_frame, text="Browse…", command=browse_icon,
+                  bg=BG_ALT, fg=FG, relief=tk.FLAT, padx=8).pack(side=tk.LEFT, padx=(6, 0))
+
+        # Buttons
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.pack(fill=tk.X, padx=16, pady=16)
+
+        def on_ok():
+            entry = var_entry.get().strip()
+            if not entry or not Path(entry).exists():
+                messagebox.showwarning("Build", "Please choose a valid entry .py file.", parent=dlg)
+                return
+            result["ok"] = True
+            result["onefile"] = var_onefile.get()
+            result["windowed"] = var_windowed.get()
+            result["tkinter"] = var_tkinter.get()
+            result["entry"] = Path(entry)
+            result["icon"] = Path(var_icon.get().strip()) if var_icon.get().strip() else None
+            dlg.destroy()
+
+        def on_cancel():
+            dlg.destroy()
+
+        tk.Button(btn_frame, text="Build", command=on_ok,
+                  bg=ACCENT, fg="white", relief=tk.FLAT, padx=16, pady=4,
+                  font=("Helvetica", 10, "bold")).pack(side=tk.RIGHT, padx=(6, 0))
+        tk.Button(btn_frame, text="Cancel", command=on_cancel,
+                  bg=BG_ALT, fg=FG, relief=tk.FLAT, padx=12, pady=4).pack(side=tk.RIGHT)
+
+        dlg.wait_window()
+
+        if not result["ok"]:
+            return
+
+        onefile = result["onefile"]
+        windowed = result["windowed"]
+        include_tkinter = result["tkinter"]
+        entry_file = result["entry"]
+        icon_path = result["icon"]
+
+        exe_name = self.project_dir.name.replace(" ", "_")
 
         self._console_clear()
         self._console_write(
-            f"Building Linux executable from {self.current_file.name}\n"
+            f"Building executable from {entry_file.name}\n"
             f"Output name: {exe_name}\n"
             f"Mode: {'onefile' if onefile else 'onedir'}\n"
+            f"Windowed: {'yes' if windowed else 'no'}\n"
+            f"Tkinter support: {'yes' if include_tkinter else 'no'}\n"
             f"Icon: {icon_path if icon_path else '(none)'}\n\n"
         )
         self.btn_run.config(state="disabled")
@@ -1253,9 +1326,13 @@ class PySimpleIDE(tk.Tk):
         ]
         if onefile:
             pyinstaller_cmd.append("--onefile")
-        if icon_path:
+        if windowed:
+            pyinstaller_cmd.append("--windowed")
+        if include_tkinter:
+            pyinstaller_cmd.extend(["--hidden-import=tkinter", "--collect-all", "tkinter"])
+        if icon_path and icon_path.exists():
             pyinstaller_cmd.extend(["--icon", str(icon_path)])
-        pyinstaller_cmd.append(str(self.current_file))
+        pyinstaller_cmd.append(str(entry_file))
 
         self.build_queue = queue.Queue()
 
